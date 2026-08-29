@@ -1,0 +1,346 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String?
+  role      String   @default("RESIDENT") // "ADMIN" or "RESIDENT"
+  phone     String?
+  status    String   @default("ACTIVE") // "PENDING", "ACTIVE", "BANNED"
+
+  block     String?
+  building  String?
+  apartment String?
+  residentType String? // "proprietario" or "inquilino"
+
+  failedLoginCount   Int       @default(0)
+  isLocked           Boolean   @default(false)
+  lockedAt           DateTime?
+  mustChangePassword Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AccessRequest {
+  id           Int      @id @default(autoincrement())
+  fullName     String
+  block        String
+  building     String
+  apartment    String
+  residentType String   // "proprietario" or "inquilino"
+  phone        String
+  whatsapp     String
+  email        String   @unique
+  status       String   @default("PENDING") // "PENDING", "APPROVED", "REJECTED"
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Property {
+  id               Int      @id @default(autoincrement())
+  title            String
+  description      String?  @db.Text
+  fullDescription  String?  @db.Text
+  propertyType     String   @default("apartment")
+  transactionType  String   @default("sale") // "sale" or "rent"
+  price            Float?
+  area             Float?
+  bedrooms         Int      @default(0)
+  bathrooms        Int      @default(0)
+  parkingSpots     Int      @default(0)
+
+  block            String?
+  building         String?
+  apartmentNumber  String?
+  address          String?
+  neighborhood     String?
+  city             String?
+  state            String?
+  zipCode          String?
+
+  features         String?  @db.Text // JSON-serialized string[]
+  imageUrl         String?
+  galleryUrls      String?  @db.Text // JSON-serialized string[]
+
+  isFeatured       Boolean  @default(false)
+  isActive         Boolean  @default(true)
+
+  ownerName        String?
+  ownerWhatsapp    String?
+  userId           Int?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+enum FeeStatus {
+  PENDING
+  PAID
+  OVERDUE
+  PENDING_VERIFICATION
+}
+
+model Unidade {
+  id                   Int      @id @default(autoincrement())
+  ord                  Int
+  bloco                Int
+  edificio             Int
+  apartamento          Int
+  nome                 String
+  contacto             String   @default("")
+  via                  String   @default("")
+  categoria            String   @default("quitadas") // quitadas | 1fase_cedsif | 1fase_nedbank | 2fase_nedbank
+  dividaAnterior       Float    @default(0)
+  pagamentosHistoricos Float    @default(0)
+  userId               Int?
+
+  fees      CondominiumFee[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoria])
+  @@index([bloco, edificio, apartamento])
+}
+
+model CondominiumFee {
+  id              Int       @id @default(autoincrement())
+  unidadeId       Int
+  unidade         Unidade   @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  referenceMonth  Int
+  referenceYear   Int
+  amount          Float     @default(0)
+  valorPago       Float     @default(0)
+  dueDate         DateTime
+  status          FeeStatus @default(PENDING)
+  paidAt          DateTime?
+  paymentMethod   String?
+  receiptUrl      String?
+
+  payments FeePayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([unidadeId, referenceYear, referenceMonth])
+  @@index([referenceYear])
+  @@index([status])
+}
+
+model FeePayment {
+  id              Int      @id @default(autoincrement())
+  feeId           Int
+  fee             CondominiumFee @relation(fields: [feeId], references: [id], onDelete: Cascade)
+  amount          Float
+  paymentMethod   String
+  paymentDate     DateTime @default(now())
+  notes           String?
+  createdByUserId Int?
+
+  createdAt DateTime @default(now())
+}
+
+model FpdUnidade {
+  id                   Int      @id @default(autoincrement())
+  ord                  Int      @default(1)
+  apartamento          Int
+  nome                 String
+  contacto             String   @default("")
+  taxa                 Float    @default(1000)
+  dividaAnterior       Float    @default(0)
+  pagamentosHistoricos Float    @default(0)
+  userId               Int?
+
+  fees      FpdFee[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([apartamento])
+}
+
+model FpdFee {
+  id              Int       @id @default(autoincrement())
+  unidadeId       Int
+  unidade         FpdUnidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  referenceMonth  Int
+  referenceYear   Int
+  amount          Float     @default(1000)
+  valorPago       Float     @default(0)
+  dueDate         DateTime
+  status          FeeStatus @default(PENDING)
+  paidAt          DateTime?
+  paymentMethod   String?
+  receiptUrl      String?
+
+  payments FpdFeePayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([unidadeId, referenceYear, referenceMonth])
+  @@index([referenceYear])
+  @@index([status])
+}
+
+model FpdFeePayment {
+  id              Int      @id @default(autoincrement())
+  feeId           Int
+  fee             FpdFee @relation(fields: [feeId], references: [id], onDelete: Cascade)
+  amount          Float
+  paymentMethod   String
+  paymentDate     DateTime @default(now())
+  notes           String?
+  createdByUserId Int?
+
+  createdAt DateTime @default(now())
+}
+
+enum InstitutionFeeStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
+
+model InstitutionFee {
+  id             Int                  @id @default(autoincrement())
+  institution    String
+  referenceYear  Int
+  referenceMonth Int
+  periodLabel    String
+  descricao      String               @default("Taxa de condomínio")
+  taxa           Float                @default(1000)
+  nApartamentos  Int                  @default(0)
+  valor          Float                @default(0)
+  valorPago      Float                @default(0)
+  status         InstitutionFeeStatus @default(PENDING)
+  paidAt         DateTime?
+  paymentMethod  String?
+
+  payments InstitutionPayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([institution, referenceYear, referenceMonth])
+  @@index([institution])
+  @@index([status])
+}
+
+model InstitutionPayment {
+  id              Int            @id @default(autoincrement())
+  feeId           Int
+  fee             InstitutionFee @relation(fields: [feeId], references: [id], onDelete: Cascade)
+  institution     String
+  amount          Float
+  paymentMethod   String
+  paymentDate     DateTime       @default(now())
+  reference       String?
+  notes           String?
+  createdByUserId Int?
+
+  createdAt DateTime @default(now())
+}
+
+model Document {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?  @db.Text
+  category    String
+  folder      String?  @default("Geral")
+  year        Int?
+  fileUrl     String
+  fileName    String
+  fileSize    String?
+  fileType    String?
+
+  downloads DocumentDownload[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([folder])
+  @@index([year])
+}
+
+model DocumentDownload {
+  id           Int      @id @default(autoincrement())
+  documentId   Int
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  downloadedAt DateTime @default(now())
+  userAgent    String?  @db.Text
+  ipAddress    String?
+
+  @@index([documentId])
+  @@index([downloadedAt])
+}
+
+model News {
+  id        Int     @id @default(autoincrement())
+  title     String
+  summary   String  @db.Text
+  content   String  @db.Text
+  category  String
+  imageUrl  String?
+  galleryUrls String? @db.Text // JSON-serialized string[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+model AboutGalleryImage {
+  id           Int    @id @default(autoincrement())
+  imageUrl     String
+  title        String?
+  displayOrder Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([displayOrder])
+}
+
+model Notice {
+  id       Int     @id @default(autoincrement())
+  title    String
+  content  String  @db.Text
+  priority String  @default("normal") // "normal" | "important" | "urgent"
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model Message {
+  id             Int       @id @default(autoincrement())
+  senderId       Int
+  recipientId    Int
+  isFromAdmin    Boolean   @default(false)
+  content        String?   @db.Text
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?
+  readAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
+}
