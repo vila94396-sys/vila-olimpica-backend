@@ -1,5 +1,0 @@
--- AlterTable
-ALTER TABLE `user` ADD COLUMN `failedLoginCount` INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN `isLocked` BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN `lockedAt` DATETIME(3) NULL,
-    ADD COLUMN `mustChangePassword` BOOLEAN NOT NULL DEFAULT false;

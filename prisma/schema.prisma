@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 model User {
@@ -51,8 +51,8 @@ model AccessRequest {
 model Property {
   id               Int      @id @default(autoincrement())
   title            String
-  description      String?  @db.Text
-  fullDescription  String?  @db.Text
+  description      String? 
+  fullDescription  String? 
   propertyType     String   @default("apartment")
   transactionType  String   @default("sale") // "sale" or "rent"
   price            Float?
@@ -70,9 +70,9 @@ model Property {
   state            String?
   zipCode          String?
 
-  features         String?  @db.Text // JSON-serialized string[]
+  features         String?  // JSON-serialized string[]
   imageUrl         String?
-  galleryUrls      String?  @db.Text // JSON-serialized string[]
+  galleryUrls      String?  // JSON-serialized string[]
 
   isFeatured       Boolean  @default(false)
   isActive         Boolean  @default(true)
@@ -257,7 +257,7 @@ model InstitutionPayment {
 model Document {
   id          Int      @id @default(autoincrement())
   title       String
-  description String?  @db.Text
+  description String? 
   category    String
   folder      String?  @default("Geral")
   year        Int?
@@ -281,7 +281,7 @@ model DocumentDownload {
   documentId   Int
   document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   downloadedAt DateTime @default(now())
-  userAgent    String?  @db.Text
+  userAgent    String? 
   ipAddress    String?
 
   @@index([documentId])
@@ -291,11 +291,11 @@ model DocumentDownload {
 model News {
   id        Int     @id @default(autoincrement())
   title     String
-  summary   String  @db.Text
-  content   String  @db.Text
+  summary   String 
+  content   String 
   category  String
   imageUrl  String?
-  galleryUrls String? @db.Text // JSON-serialized string[]
+  galleryUrls String? // JSON-serialized string[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -317,7 +317,7 @@ model AboutGalleryImage {
 model Notice {
   id       Int     @id @default(autoincrement())
   title    String
-  content  String  @db.Text
+  content  String 
   priority String  @default("normal") // "normal" | "important" | "urgent"
   isActive Boolean @default(true)
 
@@ -332,7 +332,7 @@ model Message {
   senderId       Int
   recipientId    Int
   isFromAdmin    Boolean   @default(false)
-  content        String?   @db.Text
+  content        String?  
   attachmentUrl  String?
   attachmentName String?
   attachmentType String?
