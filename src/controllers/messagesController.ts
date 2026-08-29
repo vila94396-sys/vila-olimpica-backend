@@ -115,11 +115,22 @@ export const sendMessage = async (req: Request, res: Response) => {
   }
 };
 
+import fs from 'fs';
+
 export const uploadAttachment = async (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum ficheiro enviado' });
   }
-  res.json({ url: `/uploads/${req.file.filename}` });
+  try {
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const base64Data = fileBuffer.toString('base64');
+    const dataUrl = `data:${req.file.mimetype};base64,${base64Data}`;
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.json({ url: dataUrl });
+  } catch (err) {
+    console.error('Upload attachment error:', err);
+    res.status(500).json({ error: 'Erro ao processar anexo' });
+  }
 };
 
 export const listConversations = async (req: Request, res: Response) => {
