@@ -258,6 +258,14 @@ export async function initDb() {
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS about_gallery (
+        id SERIAL PRIMARY KEY,
+        image_url TEXT NOT NULL,
+        title VARCHAR(255),
+        display_order INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
     `);
     console.log('Database tables verified/initialized successfully.');
 

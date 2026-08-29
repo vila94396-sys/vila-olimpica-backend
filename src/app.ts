@@ -17,6 +17,8 @@ import publicNoticesRoutes from './routes/publicNoticesRoutes';
 import newsRoutes from './routes/newsRoutes';
 import publicNewsRoutes from './routes/publicNewsRoutes';
 import messagesRoutes from './routes/messagesRoutes';
+import aboutGalleryRoutes from './routes/aboutGalleryRoutes';
+import publicAboutGalleryRoutes from './routes/publicAboutGalleryRoutes';
 import { UPLOADS_DIR } from './middleware/upload';
 
 const app = express();
@@ -41,6 +43,8 @@ app.use('/api/notices', publicNoticesRoutes);
 app.use('/api/admin/news', newsRoutes);
 app.use('/api/news', publicNewsRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/admin/about-gallery', aboutGalleryRoutes);
+app.use('/api/about-gallery', publicAboutGalleryRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Vila Olímpica Hub Backend API' });
