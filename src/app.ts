@@ -42,6 +42,10 @@ app.use('/api/admin/news', newsRoutes);
 app.use('/api/news', publicNewsRoutes);
 app.use('/api/messages', messagesRoutes);
 
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Vila Olímpica Hub Backend API' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Vila Olímpica Hub API is running' });
 });
