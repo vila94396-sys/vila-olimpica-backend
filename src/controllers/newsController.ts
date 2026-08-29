@@ -1,17 +1,16 @@
 import { Request, Response } from 'express';
-import { prisma } from '../lib/prisma';
-import type { News } from '@prisma/client';
+import { pool } from '../lib/db';
 
-const toNewsDto = (n: News) => ({
+const toNewsDto = (n: any) => ({
   id: n.id,
   title: n.title,
   summary: n.summary,
   content: n.content,
   category: n.category,
-  image_url: n.imageUrl,
-  gallery_urls: n.galleryUrls ? (JSON.parse(n.galleryUrls) as string[]) : null,
-  created_at: n.createdAt,
-  updated_at: n.updatedAt,
+  image_url: n.image_url,
+  gallery_urls: n.gallery_urls ? JSON.parse(n.gallery_urls) : null,
+  created_at: n.created_at,
+  updated_at: n.updated_at,
 });
 
 interface NewsInput {
@@ -23,21 +22,12 @@ interface NewsInput {
   gallery_urls?: string[] | null;
 }
 
-const toPrismaData = (body: NewsInput) => ({
-  ...(body.title !== undefined && { title: body.title }),
-  ...(body.summary !== undefined && { summary: body.summary }),
-  ...(body.content !== undefined && { content: body.content }),
-  ...(body.category !== undefined && { category: body.category }),
-  ...(body.image_url !== undefined && { imageUrl: body.image_url }),
-  ...(body.gallery_urls !== undefined && { galleryUrls: body.gallery_urls ? JSON.stringify(body.gallery_urls) : null }),
-});
-
 // --- Admin ---
 
 export const listNews = async (req: Request, res: Response) => {
   try {
-    const news = await prisma.news.findMany({ orderBy: { createdAt: 'desc' } });
-    res.json(news.map(toNewsDto));
+    const result = await pool.query('SELECT * FROM news ORDER BY created_at DESC');
+    res.json(result.rows.map(toNewsDto));
   } catch (error) {
     console.error('List News error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -50,16 +40,22 @@ export const createNews = async (req: Request, res: Response) => {
     if (!body.title?.trim() || !body.summary?.trim() || !body.content?.trim()) {
       return res.status(400).json({ error: 'Título, resumo e conteúdo são obrigatórios' });
     }
-    const news = await prisma.news.create({
-      data: {
-        title: body.title.trim(),
-        summary: body.summary,
-        content: body.content,
-        category: body.category || 'Comunicado',
-        ...toPrismaData({ image_url: body.image_url, gallery_urls: body.gallery_urls }),
-      },
-    });
-    res.status(201).json(toNewsDto(news));
+
+    const title = body.title.trim();
+    const summary = body.summary.trim();
+    const content = body.content.trim();
+    const category = body.category || 'Comunicado';
+    const imageUrl = body.image_url || null;
+    const galleryUrls = body.gallery_urls ? JSON.stringify(body.gallery_urls) : null;
+
+    const result = await pool.query(
+      `INSERT INTO news (title, summary, content, category, image_url, gallery_urls)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [title, summary, content, category, imageUrl, galleryUrls]
+    );
+
+    res.status(201).json(toNewsDto(result.rows[0]));
   } catch (error) {
     console.error('Create News error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -69,13 +65,29 @@ export const createNews = async (req: Request, res: Response) => {
 export const updateNews = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const news = await prisma.news.update({
-      where: { id: Number(id) },
-      data: toPrismaData(req.body as NewsInput),
-    });
-    res.json(toNewsDto(news));
+    const body = req.body as NewsInput;
+
+    const currentResult = await pool.query('SELECT * FROM news WHERE id = $1', [Number(id)]);
+    if (currentResult.rows.length === 0) return res.status(404).json({ error: 'News not found' });
+    const current = currentResult.rows[0];
+
+    const title = body.title !== undefined ? body.title : current.title;
+    const summary = body.summary !== undefined ? body.summary : current.summary;
+    const content = body.content !== undefined ? body.content : current.content;
+    const category = body.category !== undefined ? body.category : current.category;
+    const imageUrl = body.image_url !== undefined ? body.image_url : current.image_url;
+    const galleryUrls = body.gallery_urls !== undefined ? (body.gallery_urls ? JSON.stringify(body.gallery_urls) : null) : current.gallery_urls;
+
+    const result = await pool.query(
+      `UPDATE news
+       SET title = $1, summary = $2, content = $3, category = $4, image_url = $5, gallery_urls = $6, updated_at = NOW()
+       WHERE id = $7
+       RETURNING *`,
+      [title, summary, content, category, imageUrl, galleryUrls, Number(id)]
+    );
+
+    res.json(toNewsDto(result.rows[0]));
   } catch (error: any) {
-    if (error.code === 'P2025') return res.status(404).json({ error: 'News not found' });
     console.error('Update News error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -84,10 +96,10 @@ export const updateNews = async (req: Request, res: Response) => {
 export const deleteNews = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    await prisma.news.delete({ where: { id: Number(id) } });
+    const result = await pool.query('DELETE FROM news WHERE id = $1 RETURNING id', [Number(id)]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'News not found' });
     res.json({ message: 'Notícia removida' });
   } catch (error: any) {
-    if (error.code === 'P2025') return res.status(404).json({ error: 'News not found' });
     console.error('Delete News error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -104,8 +116,8 @@ export const uploadNewsImage = async (req: Request, res: Response) => {
 
 export const listPublicNews = async (req: Request, res: Response) => {
   try {
-    const news = await prisma.news.findMany({ orderBy: { createdAt: 'desc' } });
-    res.json(news.map(toNewsDto));
+    const result = await pool.query('SELECT * FROM news ORDER BY created_at DESC');
+    res.json(result.rows.map(toNewsDto));
   } catch (error) {
     console.error('List Public News error:', error);
     res.status(500).json({ error: 'Internal server error' });

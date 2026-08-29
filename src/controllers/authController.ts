@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../lib/prisma';
+import { pool } from '../lib/db';
 import { generateTempPassword } from '../lib/generatePassword';
 
 export const register = async (req: Request, res: Response) => {
@@ -12,21 +12,21 @@ export const register = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
+    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (existingUser.rows.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        name: name || email.split('@')[0],
-        role: 'RESIDENT',
-      },
-    });
+    const result = await pool.query(
+      `INSERT INTO users (email, password, name, role)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, email, name, role, status`,
+      [email, hashedPassword, name || email.split('@')[0], 'RESIDENT']
+    );
+
+    const user = result.rows[0];
 
     const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', {
       expiresIn: '7d',
@@ -49,31 +49,31 @@ export const login = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (result.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
+
+    const user = result.rows[0];
 
     if (user.status !== 'ACTIVE') {
       return res.status(403).json({ error: 'User account is not active' });
     }
 
-    if (user.isLocked) {
+    if (user.is_locked) {
       return res.status(403).json({ error: 'Account locked due to too many failed attempts. Contact the administrator.', locked: true });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      const newCount = user.failedLoginCount + 1;
+      const newCount = (user.failed_login_count || 0) + 1;
       const shouldLock = newCount >= MAX_LOGIN_ATTEMPTS;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          failedLoginCount: newCount,
-          isLocked: shouldLock,
-          lockedAt: shouldLock ? new Date() : null,
-        },
-      });
+      await pool.query(
+        `UPDATE users
+         SET failed_login_count = $1, is_locked = $2, locked_at = $3
+         WHERE id = $4`,
+        [newCount, shouldLock, shouldLock ? new Date() : null, user.id]
+      );
       return res.status(400).json({
         error: 'Invalid credentials',
         locked: shouldLock,
@@ -81,8 +81,8 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    if (user.failedLoginCount > 0) {
-      await prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0 } });
+    if (user.failed_login_count > 0) {
+      await pool.query('UPDATE users SET failed_login_count = 0 WHERE id = $1', [user.id]);
     }
 
     const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', {
@@ -96,7 +96,7 @@ export const login = async (req: Request, res: Response) => {
         name: user.name,
         role: user.role,
         status: user.status,
-        mustChangePassword: user.mustChangePassword,
+        mustChangePassword: user.must_change_password,
       },
       token,
     });
@@ -114,32 +114,24 @@ export const requestAccess = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email and full_name are required' });
     }
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
+    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (existingUser.rows.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
-    // Check if request already exists
-    const existingRequest = await prisma.accessRequest.findUnique({ where: { email } });
-    if (existingRequest) {
-      return res.status(400).json({ error: `A request with this email already exists and is ${existingRequest.status}` });
+    const existingRequest = await pool.query('SELECT * FROM access_requests WHERE email = $1', [email]);
+    if (existingRequest.rows.length > 0) {
+      return res.status(400).json({ error: `A request with this email already exists and is ${existingRequest.rows[0].status}` });
     }
 
-    const accessRequest = await prisma.accessRequest.create({
-      data: {
-        fullName: full_name,
-        block: block || '',
-        building: building || '',
-        apartment: apartment || '',
-        residentType: resident_type || '',
-        phone: phone || '',
-        whatsapp: whatsapp || '',
-        email,
-      },
-    });
+    const result = await pool.query(
+      `INSERT INTO access_requests (full_name, block, building, apartment, resident_type, phone, whatsapp, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [full_name, block || '', building || '', apartment || '', resident_type || '', phone || '', whatsapp || '', email]
+    );
 
-    res.status(201).json({ message: 'Access request submitted successfully', accessRequest });
+    res.status(201).json({ message: 'Access request submitted successfully', accessRequest: result.rows[0] });
   } catch (error) {
     console.error('Request Access error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -148,21 +140,19 @@ export const requestAccess = async (req: Request, res: Response) => {
 
 export const getAccessRequests = async (req: Request, res: Response) => {
   try {
-    const requests = await prisma.accessRequest.findMany({
-      orderBy: { createdAt: 'desc' }
-    });
-    res.json(requests.map((r) => ({
+    const result = await pool.query('SELECT * FROM access_requests ORDER BY created_at DESC');
+    res.json(result.rows.map((r) => ({
       id: r.id,
-      full_name: r.fullName,
+      full_name: r.full_name,
       block: r.block,
       building: r.building,
       apartment: r.apartment,
-      resident_type: r.residentType,
+      resident_type: r.resident_type,
       phone: r.phone,
       whatsapp: r.whatsapp,
       email: r.email,
-      status: r.status.toLowerCase(),
-      created_at: r.createdAt,
+      status: (r.status || '').toLowerCase(),
+      created_at: r.created_at,
     })));
   } catch (error) {
     console.error('Get Access Requests error:', error);
@@ -174,61 +164,75 @@ export const approveAccess = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const accessRequest = await prisma.accessRequest.findUnique({ where: { id: Number(id) } });
-    if (!accessRequest) {
+    const accessReqResult = await pool.query('SELECT * FROM access_requests WHERE id = $1', [Number(id)]);
+    if (accessReqResult.rows.length === 0) {
       return res.status(404).json({ error: 'Access request not found' });
     }
 
-    if (accessRequest.status !== 'PENDING') {
+    const accessRequest = accessReqResult.rows[0];
+
+    if (accessRequest.status !== 'APPROVED' && accessRequest.status !== 'PENDING') {
       return res.status(400).json({ error: `Request is already ${accessRequest.status}` });
+    }
+    if (accessRequest.status === 'APPROVED') {
+      return res.status(400).json({ error: 'Request is already APPROVED' });
     }
 
     const tempPassword = generateTempPassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-    const existingUser = await prisma.user.findUnique({ where: { email: accessRequest.email } });
+    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [accessRequest.email]);
 
-    const user = existingUser
-      ? await prisma.user.update({
-          where: { id: existingUser.id },
-          data: {
-            password: hashedPassword,
-            name: accessRequest.fullName,
-            phone: accessRequest.phone,
-            block: accessRequest.block,
-            building: accessRequest.building,
-            apartment: accessRequest.apartment,
-            residentType: accessRequest.residentType,
-            status: 'ACTIVE',
-            mustChangePassword: true,
-          },
-        })
-      : await prisma.user.create({
-          data: {
-            email: accessRequest.email,
-            password: hashedPassword,
-            name: accessRequest.fullName,
-            phone: accessRequest.phone,
-            block: accessRequest.block,
-            building: accessRequest.building,
-            apartment: accessRequest.apartment,
-            residentType: accessRequest.residentType,
-            status: 'ACTIVE',
-            role: 'RESIDENT',
-            mustChangePassword: true,
-          },
-        });
+    let user;
+    if (existingUser.rows.length > 0) {
+      const updateRes = await pool.query(
+        `UPDATE users
+         SET password = $1, name = $2, phone = $3, block = $4, building = $5, apartment = $6, resident_type = $7, status = $8, must_change_password = $9, updated_at = NOW()
+         WHERE id = $10
+         RETURNING *`,
+        [
+          hashedPassword,
+          accessRequest.full_name,
+          accessRequest.phone,
+          accessRequest.block,
+          accessRequest.building,
+          accessRequest.apartment,
+          accessRequest.resident_type,
+          'ACTIVE',
+          true,
+          existingUser.rows[0].id,
+        ]
+      );
+      user = updateRes.rows[0];
+    } else {
+      const createRes = await pool.query(
+        `INSERT INTO users (email, password, name, phone, block, building, apartment, resident_type, status, role, must_change_password)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING *`,
+        [
+          accessRequest.email,
+          hashedPassword,
+          accessRequest.full_name,
+          accessRequest.phone,
+          accessRequest.block,
+          accessRequest.building,
+          accessRequest.apartment,
+          accessRequest.resident_type,
+          'ACTIVE',
+          'RESIDENT',
+          true,
+        ]
+      );
+      user = createRes.rows[0];
+    }
 
-    await prisma.accessRequest.update({
-      where: { id: Number(id) },
-      data: { status: 'APPROVED' },
-    });
+    await pool.query("UPDATE access_requests SET status = 'APPROVED', updated_at = NOW() WHERE id = $1", [Number(id)]);
 
     res.json({
       message: 'Request approved and user created',
       email: user.email,
       password: tempPassword,
-      full_name: accessRequest.fullName,
+      full_name: accessRequest.full_name,
       whatsapp: accessRequest.whatsapp || accessRequest.phone,
     });
   } catch (error) {
@@ -241,12 +245,16 @@ export const rejectAccess = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const accessRequest = await prisma.accessRequest.update({
-      where: { id: Number(id) },
-      data: { status: 'REJECTED' }
-    });
+    const result = await pool.query(
+      "UPDATE access_requests SET status = 'REJECTED', updated_at = NOW() WHERE id = $1 RETURNING *",
+      [Number(id)]
+    );
 
-    res.json({ message: 'Request rejected', accessRequest });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Access request not found' });
+    }
+
+    res.json({ message: 'Request rejected', accessRequest: result.rows[0] });
   } catch (error) {
     console.error('Reject Access error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -257,16 +265,18 @@ export const deleteAccessRequest = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const accessRequest = await prisma.accessRequest.findUnique({ where: { id: Number(id) } });
-    if (!accessRequest) {
+    const accessReqResult = await pool.query('SELECT * FROM access_requests WHERE id = $1', [Number(id)]);
+    if (accessReqResult.rows.length === 0) {
       return res.status(404).json({ error: 'Access request not found' });
     }
+
+    const accessRequest = accessReqResult.rows[0];
 
     if (accessRequest.status === 'APPROVED') {
       return res.status(400).json({ error: 'Pedidos aprovados não podem ser eliminados — a conta do morador está activa.' });
     }
 
-    await prisma.accessRequest.delete({ where: { id: Number(id) } });
+    await pool.query('DELETE FROM access_requests WHERE id = $1', [Number(id)]);
 
     res.json({ message: 'Access request deleted' });
   } catch (error) {

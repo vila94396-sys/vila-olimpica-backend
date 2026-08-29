@@ -1,4 +1,9 @@
-import { FeeStatus } from '@prisma/client';
+export enum FeeStatus {
+  PENDING = 'PENDING',
+  PAID = 'PAID',
+  OVERDUE = 'OVERDUE',
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
+}
 
 export const MESES_LABELS: Record<number, string> = {
   1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',
