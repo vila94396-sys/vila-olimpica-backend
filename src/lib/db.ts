@@ -260,8 +260,31 @@ export async function initDb() {
       );
     `);
     console.log('Database tables verified/initialized successfully.');
+
+    // Seed Admin User
+    const adminEmail = 'efata@gmail.com';
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash('12345678', 10);
+
+    const existingAdmin = await client.query('SELECT id FROM users WHERE email = $1', [adminEmail]);
+    if (existingAdmin.rows.length === 0) {
+      await client.query(
+        `INSERT INTO users (email, password, name, role, status)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [adminEmail, hashedPassword, 'Administrador', 'ADMIN', 'ACTIVE']
+      );
+      console.log('Seed: Admin user efata@gmail.com created successfully.');
+    } else {
+      await client.query(
+        `UPDATE users
+         SET password = $1, role = 'ADMIN', status = 'ACTIVE', is_locked = false, failed_login_count = 0, updated_at = NOW()
+         WHERE email = $2`,
+        [hashedPassword, adminEmail]
+      );
+      console.log('Seed: Admin user efata@gmail.com updated successfully.');
+    }
   } catch (err) {
-    console.error('Error initializing database tables:', err);
+    console.error('Error initializing database tables/seed:', err);
   } finally {
     client.release();
   }
