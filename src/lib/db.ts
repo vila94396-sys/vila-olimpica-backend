@@ -266,8 +266,61 @@ export async function initDb() {
         display_order INT NOT NULL DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS common_areas (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        capacity INT NOT NULL DEFAULT 20,
+        rules TEXT,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS reservations (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        area_id INT NOT NULL REFERENCES common_areas(id) ON DELETE CASCADE,
+        reservation_date DATE NOT NULL,
+        start_time VARCHAR(10) NOT NULL,
+        end_time VARCHAR(10) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS marketplace_services (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        owner_name VARCHAR(255) NOT NULL,
+        business_name VARCHAR(255) NOT NULL,
+        category VARCHAR(100) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        email VARCHAR(255),
+        location VARCHAR(255),
+        description TEXT NOT NULL,
+        full_description TEXT,
+        hours VARCHAR(255),
+        image_url TEXT,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
     `);
     console.log('Database tables verified/initialized successfully.');
+
+    // Seed default common areas if empty
+    const areaCheck = await client.query('SELECT COUNT(*) as count FROM common_areas');
+    if (parseInt(areaCheck.rows[0].count, 10) === 0) {
+      await client.query(`
+        INSERT INTO common_areas (name, description, capacity, rules) VALUES
+        ('Salão de Festas Principal', 'Espaço climatizado com mesas, cadeiras e cozinha de apoio.', 100, 'Proibido som alto após as 22h. Limpeza inclusa na taxa.'),
+        ('Churrasqueira / Espaço Gourmet', 'Área externa com churrasqueira, bancada e grelha.', 30, 'Manter o local limpo após o uso.'),
+        ('Campo Polidesportivo', 'Campo multiuso para futebol de salão e basquetebol.', 25, 'Uso com calçado apropriado.'),
+        ('Piscina do Condomínio', 'Área de lazer com piscina para adultos e crianças.', 50, 'Menores devem estar acompanhados por responsáveis.')
+      `);
+      console.log('Seed: Default common areas created.');
+    }
 
     // Seed Admin User
     const adminEmail = 'efata@gmail.com';

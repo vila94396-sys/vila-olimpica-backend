@@ -30,6 +30,9 @@ export const upload = multer({
   },
 });
 
+export const uploadImage = upload;
+
+
 const ALLOWED_DOCUMENT_MIME_TYPES = [
   'application/pdf',
   'application/msword',

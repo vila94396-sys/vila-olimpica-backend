@@ -229,6 +229,107 @@ export const uploadPropertyImage = async (req: Request, res: Response) => {
   }
 };
 
+// --- User Properties ---
+
+export const listMyProperties = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const result = await pool.query('SELECT * FROM properties WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    res.json(result.rows.map(toPropertyDto));
+  } catch (error) {
+    console.error('List My Properties error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const updateMyProperty = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.userId;
+    const isAdmin = req.user!.role === 'ADMIN';
+    const body = req.body as PropertyInput;
+
+    const currentResult = await pool.query('SELECT * FROM properties WHERE id = $1', [Number(id)]);
+    if (currentResult.rows.length === 0) return res.status(404).json({ error: 'Property not found' });
+    const current = currentResult.rows[0];
+
+    if (!isAdmin && current.user_id !== userId) {
+      return res.status(403).json({ error: 'Sem permissão para alterar este imóvel' });
+    }
+
+    const title = body.title !== undefined ? body.title : current.title;
+    const description = body.description !== undefined ? body.description : current.description;
+    const fullDescription = body.full_description !== undefined ? body.full_description : current.full_description;
+    const propertyType = body.property_type !== undefined ? body.property_type : current.property_type;
+    const transactionType = body.transaction_type !== undefined ? body.transaction_type : current.transaction_type;
+    const price = body.price !== undefined ? body.price : current.price;
+    const area = body.area !== undefined ? body.area : current.area;
+    const bedrooms = body.bedrooms !== undefined ? body.bedrooms : current.bedrooms;
+    const bathrooms = body.bathrooms !== undefined ? body.bathrooms : current.bathrooms;
+    const parkingSpots = body.parking_spots !== undefined ? body.parking_spots : current.parking_spots;
+    const block = body.block !== undefined ? body.block : current.block;
+    const building = body.building !== undefined ? body.building : current.building;
+    const apartmentNumber = body.apartment_number !== undefined ? body.apartment_number : current.apartment_number;
+    const address = body.address !== undefined ? body.address : current.address;
+    const neighborhood = body.neighborhood !== undefined ? body.neighborhood : current.neighborhood;
+    const city = body.city !== undefined ? body.city : current.city;
+    const state = body.state !== undefined ? body.state : current.state;
+    const zipCode = body.zip_code !== undefined ? body.zip_code : current.zip_code;
+    const features = body.features !== undefined ? (body.features ? JSON.stringify(body.features) : null) : current.features;
+    const imageUrl = body.image_url !== undefined ? body.image_url : current.image_url;
+    const galleryUrls = body.gallery_urls !== undefined ? (body.gallery_urls ? JSON.stringify(body.gallery_urls) : null) : current.gallery_urls;
+    const isFeatured = body.is_featured !== undefined ? body.is_featured : current.is_featured;
+    const isActive = body.is_active !== undefined ? body.is_active : current.is_active;
+    const ownerName = body.owner_name !== undefined ? body.owner_name : current.owner_name;
+    const ownerWhatsapp = body.owner_whatsapp !== undefined ? body.owner_whatsapp : current.owner_whatsapp;
+
+    const result = await pool.query(
+      `UPDATE properties SET
+        title = $1, description = $2, full_description = $3, property_type = $4, transaction_type = $5,
+        price = $6, area = $7, bedrooms = $8, bathrooms = $9, parking_spots = $10, block = $11,
+        building = $12, apartment_number = $13, address = $14, neighborhood = $15, city = $16,
+        state = $17, zip_code = $18, features = $19, image_url = $20, gallery_urls = $21,
+        is_featured = $22, is_active = $23, owner_name = $24, owner_whatsapp = $25, updated_at = NOW()
+       WHERE id = $26 RETURNING *`,
+      [
+        title, description, fullDescription, propertyType, transactionType,
+        price, area, bedrooms, bathrooms, parkingSpots, block,
+        building, apartmentNumber, address, neighborhood, city,
+        state, zipCode, features, imageUrl, galleryUrls,
+        isFeatured, isActive, ownerName, ownerWhatsapp, Number(id)
+      ]
+    );
+
+    res.json(toPropertyDto(result.rows[0]));
+  } catch (error: any) {
+    console.error('Update My Property error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deleteMyProperty = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.userId;
+    const isAdmin = req.user!.role === 'ADMIN';
+
+    let query = 'DELETE FROM properties WHERE id = $1';
+    const params: any[] = [Number(id)];
+    if (!isAdmin) {
+      query += ' AND user_id = $2';
+      params.push(userId);
+    }
+    query += ' RETURNING id';
+
+    const result = await pool.query(query, params);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Property not found or permission denied' });
+    res.json({ message: 'Property removed' });
+  } catch (error: any) {
+    console.error('Delete My Property error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // --- Public ---
 
 export const listPublicProperties = async (req: Request, res: Response) => {
@@ -252,3 +353,4 @@ export const getPublicProperty = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
