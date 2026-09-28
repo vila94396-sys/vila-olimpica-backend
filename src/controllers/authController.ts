@@ -1,23 +1,27 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { pool } from '../lib/db';
 import { generateTempPassword } from '../lib/generatePassword';
+import { signAccessToken } from '../lib/security';
+
+const normalizeEmail = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
+const isPasswordAcceptable = (value: unknown) => typeof value === 'string' && value.length >= 12 && Buffer.byteLength(value, 'utf8') <= 72;
 
 export const register = async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const email = normalizeEmail(req.body?.email);
+    const { password, name } = req.body || {};
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    if (!email || !isPasswordAcceptable(password)) {
+      return res.status(400).json({ error: 'Provide a valid email and a password of 12 to 72 bytes' });
     }
 
-    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const existingUser = await pool.query('SELECT id FROM users WHERE lower(email) = $1', [email]);
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 12);
 
     const result = await pool.query(
       `INSERT INTO users (email, password, name, role)
@@ -28,9 +32,7 @@ export const register = async (req: Request, res: Response) => {
 
     const user = result.rows[0];
 
-    const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', {
-      expiresIn: '7d',
-    });
+    const token = signAccessToken(user);
 
     res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, status: user.status }, token });
   } catch (error) {
@@ -43,13 +45,14 @@ const MAX_LOGIN_ATTEMPTS = 3;
 
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body?.email);
+    const { password } = req.body || {};
 
-    if (!email || !password) {
+    if (!email || typeof password !== 'string' || Buffer.byteLength(password, 'utf8') > 72) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const result = await pool.query('SELECT * FROM users WHERE lower(email) = $1', [email]);
     if (result.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
@@ -68,16 +71,18 @@ export const login = async (req: Request, res: Response) => {
     if (!isMatch) {
       const newCount = (user.failed_login_count || 0) + 1;
       const shouldLock = newCount >= MAX_LOGIN_ATTEMPTS;
-      await pool.query(
-        `UPDATE users
-         SET failed_login_count = $1, is_locked = $2, locked_at = $3
-         WHERE id = $4`,
-        [newCount, shouldLock, shouldLock ? new Date() : null, user.id]
+      const failureResult = await pool.query(
+        `UPDATE users SET failed_login_count = failed_login_count + 1,
+         is_locked = (failed_login_count + 1) >= $1,
+         locked_at = CASE WHEN (failed_login_count + 1) >= $1 THEN NOW() ELSE locked_at END
+         WHERE id = $2 RETURNING failed_login_count`,
+        [MAX_LOGIN_ATTEMPTS, user.id]
       );
+      const updatedCount = failureResult.rows[0]?.failed_login_count ?? newCount;
       return res.status(400).json({
         error: 'Invalid credentials',
         locked: shouldLock,
-        remaining: Math.max(0, MAX_LOGIN_ATTEMPTS - newCount),
+        remaining: Math.max(0, MAX_LOGIN_ATTEMPTS - updatedCount),
       });
     }
 
@@ -85,9 +90,7 @@ export const login = async (req: Request, res: Response) => {
       await pool.query('UPDATE users SET failed_login_count = 0 WHERE id = $1', [user.id]);
     }
 
-    const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', {
-      expiresIn: '7d',
-    });
+    const token = signAccessToken(user);
 
     res.json({
       user: {
@@ -114,12 +117,13 @@ export const requestAccess = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email and full_name are required' });
     }
 
-    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const normalizedEmail = normalizeEmail(email);
+    const existingUser = await pool.query('SELECT id FROM users WHERE lower(email) = $1', [normalizedEmail]);
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
-    const existingRequest = await pool.query('SELECT * FROM access_requests WHERE email = $1', [email]);
+    const existingRequest = await pool.query('SELECT id, status FROM access_requests WHERE lower(email) = $1', [normalizedEmail]);
     if (existingRequest.rows.length > 0) {
       return res.status(400).json({ error: `A request with this email already exists and is ${existingRequest.rows[0].status}` });
     }
@@ -128,7 +132,7 @@ export const requestAccess = async (req: Request, res: Response) => {
       `INSERT INTO access_requests (full_name, block, building, apartment, resident_type, phone, whatsapp, email)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [full_name, block || '', building || '', apartment || '', resident_type || '', phone || '', whatsapp || '', email]
+      [full_name, block || '', building || '', apartment || '', resident_type || '', phone || '', whatsapp || '', normalizedEmail]
     );
 
     res.status(201).json({ message: 'Access request submitted successfully', accessRequest: result.rows[0] });
@@ -179,7 +183,7 @@ export const approveAccess = async (req: Request, res: Response) => {
     }
 
     const tempPassword = generateTempPassword();
-    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+    const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
     const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [accessRequest.email]);
 
@@ -187,7 +191,7 @@ export const approveAccess = async (req: Request, res: Response) => {
     if (existingUser.rows.length > 0) {
       const updateRes = await pool.query(
         `UPDATE users
-         SET password = $1, name = $2, phone = $3, block = $4, building = $5, apartment = $6, resident_type = $7, status = $8, must_change_password = $9, updated_at = NOW()
+         SET password = $1, name = $2, phone = $3, block = $4, building = $5, apartment = $6, resident_type = $7, status = $8, must_change_password = $9, token_version = token_version + 1, updated_at = NOW()
          WHERE id = $10
          RETURNING *`,
         [

@@ -2,7 +2,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
-import cors from 'express';
 import authRoutes from './routes/authRoutes';
 import residentsRoutes from './routes/residentsRoutes';
 import propertiesRoutes from './routes/propertiesRoutes';
@@ -26,13 +25,15 @@ import { UPLOADS_DIR } from './middleware/upload';
 
 const app = express();
 
-app.use(express.json());
-// Temporarily allow all origins for dev
-app.use(require('cors')({ origin: '*' }));
+app.use(express.json({ limit: '16kb' }));
+const allowedOrigins = process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()).filter(Boolean)
+  || (process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173']);
+app.use(require('cors')({ origin: allowedOrigins }));
 
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/residents', residentsRoutes);
 app.use('/api/admin/residents', residentsRoutes);
 app.use('/api/admin/properties', propertiesRoutes);
 app.use('/api/properties', publicPropertiesRoutes);

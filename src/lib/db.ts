@@ -29,10 +29,13 @@ export async function initDb() {
         failed_login_count INT NOT NULL DEFAULT 0,
         is_locked BOOLEAN NOT NULL DEFAULT FALSE,
         locked_at TIMESTAMP WITH TIME ZONE,
+        token_version INT NOT NULL DEFAULT 0,
         must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0;
 
       CREATE TABLE IF NOT EXISTS access_requests (
         id SERIAL PRIMARY KEY,
@@ -322,27 +325,22 @@ export async function initDb() {
       console.log('Seed: Default common areas created.');
     }
 
-    // Seed Admin User
-    const adminEmail = 'efata@gmail.com';
-    const bcrypt = require('bcryptjs');
-    const hashedPassword = await bcrypt.hash('12345678', 10);
-
-    const existingAdmin = await client.query('SELECT id FROM users WHERE email = $1', [adminEmail]);
-    if (existingAdmin.rows.length === 0) {
-      await client.query(
-        `INSERT INTO users (email, password, name, role, status)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [adminEmail, hashedPassword, 'Administrador', 'ADMIN', 'ACTIVE']
-      );
-      console.log('Seed: Admin user efata@gmail.com created successfully.');
-    } else {
-      await client.query(
-        `UPDATE users
-         SET password = $1, role = 'ADMIN', status = 'ACTIVE', is_locked = false, failed_login_count = 0, updated_at = NOW()
-         WHERE email = $2`,
-        [hashedPassword, adminEmail]
-      );
-      console.log('Seed: Admin user efata@gmail.com updated successfully.');
+    // Bootstrap an administrator only when explicit credentials are configured.
+    // Never reset an existing administrator to a known default password on startup.
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (adminEmail && adminPassword && Buffer.byteLength(adminPassword, 'utf8') >= 12 && Buffer.byteLength(adminPassword, 'utf8') <= 72) {
+      const existingAdmin = await client.query('SELECT id FROM users WHERE lower(email) = $1', [adminEmail]);
+      if (existingAdmin.rows.length === 0) {
+        const bcrypt = require('bcryptjs');
+        const hashedPassword = await bcrypt.hash(adminPassword, 12);
+        await client.query(
+          `INSERT INTO users (email, password, name, role, status)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [adminEmail, hashedPassword, 'Administrador', 'ADMIN', 'ACTIVE']
+        );
+        console.log('Seed: Administrator created from configured bootstrap credentials.');
+      }
     }
   } catch (err) {
     console.error('Error initializing database tables/seed:', err);
