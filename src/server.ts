@@ -1,10 +1,11 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+
 import app from './app';
 import { initDb } from './lib/db';
 import { getJwtSecret } from './lib/security';
 
 const PORT = process.env.PORT || 3001;
-
+dotenv.config({ override: false });
 getJwtSecret();
 initDb().then(() => {
   app.listen(PORT, () => {
