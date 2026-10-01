@@ -21,7 +21,8 @@ router.delete('/:id', authenticateToken, deleteReservation);
 
 // Admin routes
 router.get('/', authenticateToken, requireAdmin, listReservations);
-router.put('/:id/status', authenticateToken, requireAdmin, updateReservationStatus);
-router.patch('/:id/status', authenticateToken, requireAdmin, updateReservationStatus);
+// Status update (admin or resident cancelling own reservation)
+router.put('/:id/status', authenticateToken, updateReservationStatus);
+router.patch('/:id/status', authenticateToken, updateReservationStatus);
 
 export default router;

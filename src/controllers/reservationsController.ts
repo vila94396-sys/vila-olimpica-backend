@@ -115,6 +115,23 @@ export const updateReservationStatus = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Status é obrigatório' });
     }
 
+    const userId = req.user!.userId;
+    const isAdmin = req.user!.role === 'ADMIN';
+
+    // Se nao for admin, so pode alterar o status da sua propria reserva para 'cancelled'
+    if (!isAdmin) {
+      if (status !== 'cancelled') {
+        return res.status(403).json({ error: 'Apenas administradores podem definir este status' });
+      }
+      const existing = await pool.query('SELECT user_id FROM reservations WHERE id = $1', [Number(id)]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: 'Reserva não encontrada' });
+      }
+      if (Number(existing.rows[0].user_id) !== Number(userId)) {
+        return res.status(403).json({ error: 'Sem permissão para alterar esta reserva' });
+      }
+    }
+
     const result = await pool.query(`
       UPDATE reservations
       SET status = $1, updated_at = NOW()
